@@ -5,86 +5,126 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import pandas as pd
 
+# Custom CSS for e-commerce styling
+st.markdown("""
+<style>
+    .product-container {
+        background-color: #ffffff;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .product-image {
+        max-width: 100%;
+        border-radius: 8px;
+    }
+    .product-title {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+    }
+    .product-description {
+        color: #666;
+        margin: 10px 0;
+    }
+    .product-price {
+        font-size: 20px;
+        font-weight: bold;
+        color: #2ecc71;
+    }
+    .simulate-button {
+        background-color: #3498db;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        border: none;
+        cursor: pointer;
+    }
+    .simulate-button:hover {
+        background-color: #2980b9;
+    }
+    .dashboard-header {
+        font-size: 22px;
+        font-weight: bold;
+        margin-top: 20px;
+        margin-bottom: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Custom Gym Environment for Dynamic Pricing
 class PricingEnv(gym.Env):
     def __init__(self):
         super(PricingEnv, self).__init__()
-        # State: (inventory_level, demand_level)
         self.inventory_levels = 101  # 0 to 100 units
         self.demand_levels = 3  # Low (0), Medium (1), High (2)
-        self.action_space = spaces.Discrete(3)  # Prices: $50 (0), $75 (1), $100 (2)
-        self.observation_space  # Prices: $50 (0), $75 (1), $100 (2)
+        self.action_space = spaces.Discrete(3)  # Prices: $500 (0), $750 (1), $1000 (2)
         self.observation_space = spaces.Tuple((
             spaces.Discrete(self.inventory_levels),
             spaces.Discrete(self.demand_levels)
         ))
-        # Parameters
-        self.cost = 40  # Cost per unit
-        self.prices = [50, 75, 100]  # Available prices
+        self.cost = 400  # Cost per unit
+        self.prices = [500, 750, 1000]  # Realistic smartphone prices
         self.max_days = 30  # Episode length
-        self.base_demand = 20  # Base demand (adjusted by price)
-        self.demand_factor = 0.1  # Demand decreases with price
+        self.base_demand = 20  # Base demand
+        self.demand_factor = 0.01  # Demand decreases with price
         self.reset()
 
     def reset(self):
-        self.inventory = 100  # Start with 100 units
+        self.inventory = 100
         self.day = 0
-        self.demand_level = 1  # Start with medium demand
+        self.demand_level = 1
         return (self.inventory, self.demand_level)
 
     def step(self, action):
         price = self.prices[action]
-        # Calculate demand based on price
         demand = max(0, int(self.base_demand - self.demand_factor * price))
-        # Demand level: High (demand > 15), Medium (5-15), Low (< 5)
         if demand > 15:
             self.demand_level = 2
         elif demand > 5:
             self.demand_level = 1
         else:
             self.demand_level = 0
-        # Sales limited by inventory
         units_sold = min(demand, self.inventory)
         self.inventory -= units_sold
-        # Calculate reward (profit)
         reward = (price - self.cost) * units_sold
         self.day += 1
-        # Done if inventory is 0 or max days reached
         done = self.inventory == 0 or self.day >= self.max_days
-        # Next state
         state = (self.inventory, self.demand_level)
         info = {"price": price, "units_sold": units_sold, "profit": reward}
         return state, reward, done, info
 
     def render(self):
-        pass  # No rendering needed for Streamlit
+        pass
 
 # Q-Learning Agent
 class QLearningAgent:
-    def __init__(self, env, learning_rate=0.1, discount_factor=0.9, epsilon=0.1):
+    def __init__(self, env):
         self.env = env
-        self.lr = learning_rate
-        self.gamma = discount_factor
-        self.epsilon = epsilon
-        # Initialize Q-table
+        self.lr = 0.1
+        self.gamma = 0.9
+        self.epsilon = 0.1
         self.q_table = np.zeros((env.inventory_levels, env.demand_levels, env.action_space.n))
 
     def choose_action(self, state):
-        if np.random.random() < self.epsilon:  # Exploration
+        if np.random.random() < self.epsilon:
             return self.env.action_space.sample()
-        return np.argmax(self.q_table[state[0], state[1]])  # Exploitation
+        return np.argmax(self.q_table[state[0], state[1]])
 
     def learn(self, state, action, reward, next_state):
         current_q = self.q_table[state[0], state[1], action]
         next_max_q = np.max(self.q_table[next_state[0], next_state[1]])
-        # Q-learning update
         new_q = current_q + self.lr * (reward + self.gamma * next_max_q - current_q)
         self.q_table[state[0], state[1], action] = new_q
 
 # Training Function
 def train_agent(episodes, learning_rate, discount_factor, epsilon):
     env = PricingEnv()
-    agent = QLearningAgent(env, learning_rate, discount_factor, epsilon)
+    agent = QLearningAgent(env)
+    agent.lr = learning_rate
+    agent.gamma = discount_factor
+    agent.epsilon = epsilon
     total_rewards = []
     prices_over_time = []
     profits_over_time = []
@@ -106,29 +146,44 @@ def train_agent(episodes, learning_rate, discount_factor, epsilon):
             episode_reward += reward
             episode_prices.append(info["price"])
             episode_profits.append(info["profit"])
-
             if done:
                 break
 
         total_rewards.append(episode_reward)
         prices_over_time.append(episode_prices)
         profits_over_time.append(episode_profits)
-        # Decay epsilon
         agent.epsilon = max(0.01, agent.epsilon * 0.995)
-
-        # Update progress
         progress = (episode + 1) / episodes
         progress_bar.progress(progress)
         status_text.text(f"Training: Episode {episode + 1}/{episodes}, Profit: ${episode_reward:.2f}")
 
-    return total_rewards, prices_over_time, profits_over_time, agent
+    return total_rewards, prices_over_time, profits_over_time
 
 # Streamlit Interface
-st.title("Dynamic Pricing Agent Dashboard")
-st.markdown("""
-This dashboard demonstrates an AI agent that uses Q-learning to optimize product pricing in a simulated retail market.
-Adjust the parameters below and click 'Train Agent' to see the agent learn!
-""")
+st.title("Dynamic Pricing E-Commerce Demo")
+st.markdown("Welcome to our AI-powered e-commerce store! Watch the price of the Galaxy Z Fold adjust dynamically based on demand and inventory, optimized by a reinforcement learning agent.")
+
+# Product Section
+st.markdown("<div class='product-container'>", unsafe_allow_html=True)
+col1, col2 = st.columns([1, 2])
+with col1:
+    st.image("https://images.unsplash.com/photo-1598327105666-5b89351aff97", caption="Galaxy Z Fold", use_column_width=True, output_format="auto")
+with col2:
+    st.markdown("<h2 class='product-title'>Galaxy Z Fold</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='product-description'>Experience the future with the Galaxy Z Fold, featuring a foldable display and cutting-edge technology.</p>", unsafe_allow_html=True)
+    if 'last_prices' not in st.session_state:
+        st.session_state.last_prices = [750]  # Initial price
+        st.session_state.current_day = 0
+    st.markdown(f"<p class='product-price'>Price: ${st.session_state.last_prices[st.session_state.current_day]}</p>", unsafe_allow_html=True)
+    if st.button("Simulate Next Day", key="simulate"):
+        if st.session_state.current_day < len(st.session_state.last_prices) - 1:
+            st.session_state.current_day += 1
+        else:
+            st.warning("No more days to simulate. Please train the agent again.")
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Dashboard Section
+st.markdown("<h2 class='dashboard-header'>Pricing Agent Dashboard</h2>", unsafe_allow_html=True)
 
 # Parameter Inputs
 st.sidebar.header("Training Parameters")
@@ -140,11 +195,12 @@ epsilon = st.sidebar.slider("Exploration Rate (Epsilon)", 0.01, 0.5, 0.1, step=0
 # Train Button
 if st.button("Train Agent"):
     with st.spinner("Training agent..."):
-        total_rewards, prices_over_time, profits_over_time, agent = train_agent(
+        total_rewards, prices_over_time, profits_over_time = train_agent(
             episodes, learning_rate, discount_factor, epsilon
         )
+        st.session_state.last_prices = prices_over_time[-1]
+        st.session_state.current_day = 0
 
-    # Display Results
     st.header("Training Results")
 
     # Plot Total Rewards
@@ -166,7 +222,6 @@ if st.button("Train Agent"):
         "Profit ($)": last_profits
     })
 
-    # Line Plot
     fig, ax = plt.subplots()
     ax.plot(df["Day"], df["Price ($)"], label="Price", color="blue")
     ax.set_xlabel("Day")
